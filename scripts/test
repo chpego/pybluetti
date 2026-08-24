@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -e
+
+cd "$(dirname "$0")/.."
+
+python3 -m pytest tests/ -q --cov=pybluetti --cov-report=term-missing --cov-fail-under=100
