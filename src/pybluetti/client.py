@@ -4,7 +4,7 @@ import logging
 from abc import abstractmethod
 from collections.abc import Callable
 from json import dumps
-from typing import Any, Generic, TypeVar
+from typing import Any
 
 import aiohttp
 from pydantic import TypeAdapter
@@ -13,10 +13,8 @@ from .const import Method
 from .exceptions import ApplicationRuntimeException
 from .unify_response import UnifyResponse
 
-T = TypeVar("T")
 
-
-class Bluetti(Generic[T]):
+class Bluetti:
     """Base class describing interactions with the BLUETTI cloud service."""
 
     _accessToken: str | None = None
@@ -58,9 +56,14 @@ class Bluetti(Generic[T]):
         path: str,
         params: dict[str, Any] | None = None,
         body: dict[str, Any] | None = None,
-    ) -> UnifyResponse[T] | str:
+    ) -> UnifyResponse[Any] | str:
         """
         Send a request to the server.
+
+        Returns UnifyResponse[Any] since responseType is a runtime value (fed
+        straight into pydantic's TypeAdapter, not a static type parameter) -
+        callers restore a precise type at the boundary with typing.cast,
+        matching what responseType actually validated.
 
         - responseType: the type of response data, without the UnifyResponse wrapper.
         - method: the HTTP method.

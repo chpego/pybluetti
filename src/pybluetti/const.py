@@ -7,7 +7,7 @@ class StringEnum(str, Enum):
     """String Enum define."""
 
     def __str__(self) -> str:
-        return self.value
+        return str(self.value)
 
 
 class Method(StringEnum):

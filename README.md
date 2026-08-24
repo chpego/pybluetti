@@ -39,9 +39,10 @@ The extraction is happening in three steps:
 ## Development
 
 ```bash
-scripts/setup   # install runtime + test dependencies
-scripts/test    # run the test suite (100% line coverage enforced)
-scripts/lint    # run ruff, auto-fixing what it safely can
+scripts/setup      # install runtime + test dependencies
+scripts/test       # run the test suite (100% line coverage enforced)
+scripts/lint       # run ruff, auto-fixing what it safely can
+scripts/typecheck  # run mypy --strict
 ```
 
 ## License

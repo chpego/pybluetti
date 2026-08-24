@@ -52,8 +52,8 @@ class StompClient:
         self._ws: aiohttp.ClientWebSocketResponse | None = None
         self.running = False
 
-        self._receive_task: asyncio.Task | None = None
-        self._heartbeat_task: asyncio.Task | None = None
+        self._receive_task: asyncio.Task[None] | None = None
+        self._heartbeat_task: asyncio.Task[None] | None = None
         self.heartbeat_interval = 10
 
         self.reconnect_delay = 1  # initial reconnect delay (seconds)
@@ -134,12 +134,17 @@ class StompClient:
 
     async def _run(self) -> None:
         """Receive and handle STOMP frames until the connection closes."""
+        ws = self._ws
+        if ws is None:
+            __LOGGER__.error("BLUETTI WebSocket task started without an open connection")
+            return
+
         try:
-            async for msg in self._ws:
+            async for msg in ws:
                 if msg.type == aiohttp.WSMsgType.TEXT:
                     await self._handle_frame(msg.data)
                 elif msg.type == aiohttp.WSMsgType.ERROR:
-                    __LOGGER__.error("The BLUETTI WebSocket raised an error: %s", self._ws.exception())
+                    __LOGGER__.error("The BLUETTI WebSocket raised an error: %s", ws.exception())
                     break
                 elif msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSED):
                     __LOGGER__.debug("WebSocket connection closed: %s", msg)
@@ -188,6 +193,11 @@ class StompClient:
             raise ApplicationRuntimeException(msgCode=error["msgCode"], errMessage=error["message"])
 
     async def _handle_connected_frame(self, frame: stomper.Frame) -> None:
+        ws = self._ws
+        if ws is None:
+            __LOGGER__.error("Received a CONNECTED frame without an open connection, cannot subscribe")
+            return
+
         heartbeat = frame.headers.get("heart-beat", "0,0")
         server_send, server_receive = map(int, heartbeat.split(","))
         __LOGGER__.info(
@@ -201,7 +211,7 @@ class StompClient:
             return
         destination = f"/ws-subscribe/user/{user_name}/notify"
         sub = stomper.subscribe(destination, "clientUniqueId", ack="auto")
-        await self._ws.send_str(sub)
+        await ws.send_str(sub)
 
     def _invoke_handler(self, body: str) -> None:
         if not self.__handler:

@@ -53,3 +53,23 @@ jobs:
 
       - name: Run ruff
         run: ruff check .
+
+  typecheck:
+    name: Run mypy --strict
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Install the package and mypy
+        run: scripts/setup
+
+      - name: Run mypy
+        run: scripts/typecheck

@@ -216,6 +216,15 @@ async def test_heartbeat_loop_without_websocket_does_nothing():
 
 # --- StompClient._run ----------------------------------------------------------
 
+async def test_run_without_websocket_logs_and_returns():
+    client, _session, _on_auth_expired = _client()
+    client.reconnect = AsyncMock()
+
+    await client._run()  # must not raise
+
+    client.reconnect.assert_not_awaited()
+
+
 async def test_run_dispatches_text_messages_to_handle_frame():
     raw = "MESSAGE\ndestination:/topic\n\nhello body\x00"
     ws = _FakeWebSocket([_FakeWSMessage(aiohttp.WSMsgType.TEXT, raw)])
@@ -311,6 +320,13 @@ async def test_handle_frame_error_other_code_raises():
         await client._handle_frame(raw)
 
     assert exc_info.value.msgCode == 500
+
+
+async def test_handle_frame_connected_without_websocket_logs_and_returns():
+    client, _session, _on_auth_expired = _client()
+    raw = "CONNECTED\nheart-beat:10000,10000\nuser-name:bob\n\n\x00"
+
+    await client._handle_frame(raw)  # must not raise
 
 
 async def test_handle_frame_connected_with_user_name_subscribes():
