@@ -22,6 +22,8 @@ classifiers = [
 dependencies = [
     "aiohttp>=3.9",
     "pydantic>=2.0",
+    "stomper>=0.4",
+    "websocket-client>=1.6",
 ]
 
 [project.urls]
@@ -55,19 +57,38 @@ ignore = [
     "COM812", # incompatible with formatter
     "ISC001", # incompatible with formatter
 
-    # Same "ratchet up over time rather than one giant mechanical PR"
-    # bootstrap baseline used in bluetti-home-assistant's own ruff.toml -
-    # keep this list only as large as what a fresh, empty package actually
-    # needs; grow it deliberately as code lands, not preemptively.
     "D1", # undocumented-* - matches "no comment unless the why is non-obvious"
     "CPY001", # missing-copyright-notice - a top-level LICENSE file covers this
 
     # Deliberately NOT bootstrapped away like bluetti-home-assistant's ANN
     # ignores: that codebase predates strict typing and ratchets up over
     # time, but this one starts from zero, and reaching HA core eventually
-    # needs "strict-typing: done" - so annotations are required from the
-    # first commit instead of being deferred.
+    # needs "strict-typing: done" - so annotations are required on src/ from
+    # the first commit instead of being deferred (see per-file-ignores below
+    # for why tests/ is exempt).
+
+    # The following are carried over verbatim from bluetti-home-assistant's
+    # own ruff.toml, for the exact same reason it lists there: client.py,
+    # product_client.py, and websocket.py are a mechanical port of that
+    # repo's api/ package (see pybluetti's README), so they inherit its
+    # patterns rather than introducing new laxness here.
+    "E501", # line-too-long
+    "N803", "N815", # non-lowercase naming - mirrors the cloud API's own field/param casing
+    "N818", # error-suffix-on-exception-name
+    "BLE001", # blind-except
+    "PLR2004", # magic-value-comparison
+    "ANN401", # Any is inherent to _request()'s generic response-type parameter
+    "ARG002", "ARG004", # unused arguments - expected for async context-manager/callback protocol signatures
+    "UP042", "UP046", # typing modernization (PEP 695 generics, StrEnum) not worth the diff in a direct port
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101"] # assert is the normal pytest idiom, not a smell, here.
+"tests/**" = [
+    "S101", # assert is the normal pytest idiom, not a smell, here.
+    "SLF001", # the ported websocket tests deliberately reach into name-mangled
+              # privates (_StompClient__on_open etc.), by design - see
+              # bluetti-home-assistant's own identical ignore.
+    "ANN001", "ANN002", "ANN003", "ANN201", "ANN202", "ANN204", # test functions and
+              # fixture/mock helpers aren't part of the library's public surface,
+              # so the "annotations required" rule above doesn't apply to them.
+]
