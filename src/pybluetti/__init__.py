@@ -18,7 +18,7 @@ from .product_client import ProductClient
 from .unify_response import UnifyResponse
 from .websocket import StompClient
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 __all__ = [
     "ApplicationRuntimeException",

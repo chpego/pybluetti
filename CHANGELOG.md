@@ -1,6 +1,7 @@
-# Unreleased
+# 0.1.1
 
 - Adopted `mypy --strict` across the whole package (wired into CI via `scripts/typecheck`), fulfilling the "strict-typing" requirement of Home Assistant's Platinum integration quality scale. Along the way, fixed a real type-unsoundness bug: `Bluetti` was declared `Generic[T]` at the class level but never actually parametrized per instance - `_request()` now returns `UnifyResponse[Any] | str`, with `ProductClient`'s public methods restoring a precise type via `typing.cast` at the boundary where `pydantic.TypeAdapter` already validated it at runtime.
+- Moved to the `bluetti-community` GitHub organization (was `pybluetti`); no change to the PyPI package name or install command.
 
 # 0.1.0
 
