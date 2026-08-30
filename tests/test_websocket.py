@@ -100,6 +100,18 @@ async def test_connect_opens_socket_sends_connect_frame_and_starts_tasks():
     await client.disconnect()  # tidy up the background tasks started above
 
 
+async def test_update_access_token_affects_the_next_connect():
+    ws = _FakeWebSocket()
+    client, _session, _on_auth_expired = _client(ws)
+
+    client.update_access_token("refreshed-token")
+    await client.connect()
+
+    assert "Authorization: refreshed-token" in ws.sent[0]
+
+    await client.disconnect()  # tidy up the background tasks started above
+
+
 async def test_connect_failure_triggers_reconnect():
     class _FailingSession:
         async def ws_connect(self, url, **kwargs):

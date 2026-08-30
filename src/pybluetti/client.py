@@ -49,6 +49,17 @@ class Bluetti:
         self._accessToken = accessToken
         self._on_auth_expired = on_auth_expired
 
+    def update_access_token(self, access_token: str) -> None:
+        """
+        Swap in a freshly refreshed access token for future requests.
+
+        The token is captured at construction and used as-is on every
+        request; a caller that proactively refreshes an OAuth2 token before
+        it expires needs a way to hand the new one to an already-constructed
+        client without tearing it down and losing its state.
+        """
+        self._accessToken = access_token
+
     async def _request(
         self,
         responseType: Any,

@@ -59,6 +59,18 @@ class StompClient:
         self.reconnect_delay = 1  # initial reconnect delay (seconds)
         self.max_reconnect_delay = 30  # max reconnect delay (seconds)
 
+    def update_access_token(self, access_token: str) -> None:
+        """
+        Swap in a freshly refreshed access token for future (re)connects.
+
+        The current connection, if any, keeps running on the token it
+        already authenticated with - this only takes effect the next time
+        connect() runs (a caller-initiated reconnect, or the automatic one
+        after a disconnect), the same lazy update pybluetti.Bluetti's
+        REST clients get from their own update_access_token.
+        """
+        self.__headers["Authorization"] = access_token
+
     @staticmethod
     def __get_host(connection_url: str) -> str:
         host = connection_url.split("//")[1]

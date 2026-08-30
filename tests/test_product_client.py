@@ -66,6 +66,18 @@ async def test_get_user_products_success():
     assert kwargs["json"] is None
 
 
+async def test_update_access_token_affects_subsequent_requests():
+    response = _FakeResponse(json_data={"msgId": "1", "msgCode": 0, "data": []})
+    session = _FakeSession(response)
+    client, _on_auth_expired = _client(session)
+
+    client.update_access_token("refreshed-token")
+    await client.get_user_products()
+
+    _method, _url, kwargs = session.calls[0]
+    assert kwargs["headers"]["Authorization"] == "refreshed-token"
+
+
 async def test_get_device_status_strips_none_params():
     response = _FakeResponse(json_data={"msgId": "1", "msgCode": 0, "data": []})
     session = _FakeSession(response)
