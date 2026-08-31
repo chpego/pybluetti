@@ -273,6 +273,7 @@ async def test_run_breaks_on_error_message_type_and_reconnects_if_running():
 
     await client._run()
 
+    assert ws.close_called is True
     client.reconnect.assert_awaited_once()
 
 
@@ -289,6 +290,9 @@ async def test_run_breaks_on_close_message_type_and_skips_reconnect_when_stopped
 
 async def test_run_catches_unexpected_exception_and_reconnects():
     class _BrokenWebSocket:
+        def __init__(self):
+            self.closed = False
+
         def __aiter__(self):
             return self
 
@@ -296,11 +300,17 @@ async def test_run_catches_unexpected_exception_and_reconnects():
             msg = "boom"
             raise RuntimeError(msg)
 
-    client, _session, _on_auth_expired = _client(_BrokenWebSocket())
+        async def close(self):
+            self.closed = True
+
+    ws = _BrokenWebSocket()
+    client, _session, _on_auth_expired = _client(ws)
     client.running = True
     client.reconnect = AsyncMock()
 
     await client._run()
+
+    assert ws.closed is True
 
     client.reconnect.assert_awaited_once()
 
@@ -332,6 +342,12 @@ async def test_run_catches_application_runtime_exception_logs_full_and_calls_on_
     on_error.assert_called_once()
     assert on_error.call_args[0][0].msgCode == 500
     assert client._last_error_message == "server error"
+    # The real bug this guards against: _run() used to leave the abandoned
+    # connection open on this exact path (only msgCode 805 closed it), so a
+    # concurrently-running heartbeat task could still be mid-send against it
+    # by the time it actually finished closing - "Cannot write to closing
+    # transport", repeating on every retry cycle in production.
+    assert ws.close_called is True
     client.reconnect.assert_awaited_once()
 
 

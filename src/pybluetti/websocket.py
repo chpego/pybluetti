@@ -190,6 +190,20 @@ class StompClient:
         except Exception:
             __LOGGER__.exception("BLUETTI WebSocket task crashed")
 
+        # Only the msgCode-805 path (handled inline above, not via this
+        # except block) closes ws itself. Every other way out of the loop
+        # above - an ERROR/CLOSE message, a raised ApplicationRuntimeException,
+        # or an unexpected crash - leaves it open from our own side. The
+        # heartbeat task's own is-it-closed check races against however long
+        # aiohttp takes to notice the remote already closed its end, so it
+        # can still slip through and fail the write instead of cleanly
+        # breaking - closing it decisively here, as soon as we've decided to
+        # abandon this connection, is what actually closes that window
+        # (connect()'s heartbeat-task cancellation below is the remaining,
+        # much narrower backstop: mid-send at this exact instant).
+        if not ws.closed:
+            await ws.close()
+
         if self.running:
             await self.reconnect()
 

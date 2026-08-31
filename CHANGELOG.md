@@ -1,3 +1,7 @@
+# 0.2.1rc1 (pre-release)
+
+- Fixed `_run()` leaving the abandoned connection open on every path except a token-expiry (msgCode 805): an `ApplicationRuntimeException`, a plain ERROR/CLOSE message, or an unexpected crash all left `close()` uncalled on the old connection. 0.2.0's heartbeat-task cancellation in `connect()` was only a partial fix - the still-open connection let a concurrently-running heartbeat send slip past its own is-it-closed check and fail against the transport before aiohttp itself noticed the remote side had already closed, reported as "Failed to send heartbeat: Cannot write to closing transport" repeating on every reconnect cycle in production (real-world confirmation: bluetti-official/bluetti-home-assistant#145). `_run()` now closes the connection itself as soon as it decides to abandon it, closing that race instead of just narrowing it.
+
 # 0.2.0
 
 - **Breaking**: `StompClient.__init__`'s `handler`, `on_auth_expired`, and the new `on_error` are now keyword-only (`session`/`url`/`access_token` stay positional). Update any call passing `handler` positionally to `handler=...`.
