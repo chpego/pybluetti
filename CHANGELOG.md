@@ -1,3 +1,10 @@
+# 0.2.0
+
+- **Breaking**: `StompClient.__init__`'s `handler`, `on_auth_expired`, and the new `on_error` are now keyword-only (`session`/`url`/`access_token` stay positional). Update any call passing `handler` positionally to `handler=...`.
+- Added `StompClient(on_error=...)`, invoked for any ERROR frame the cloud sends back other than a token-expiry (msgCode 805) - previously invisible to a caller beyond a bare `.exception()` log line inside `_run()`'s own retry loop.
+- Fixed `StompClient` leaking the previous connection's heartbeat task into every reconnect that follows a dropped or rejected connection - `connect()` now cancels it first, instead of the task quietly failing its next send against the closing transport.
+- `StompClient` no longer re-logs a full traceback on every retry of a persistently repeated `ApplicationRuntimeException` - only the first occurrence and any occurrence with a different message log at full severity; repeats log at debug.
+
 # 0.1.1
 
 - Adopted `mypy --strict` across the whole package (wired into CI via `scripts/typecheck`), fulfilling the "strict-typing" requirement of Home Assistant's Platinum integration quality scale. Along the way, fixed a real type-unsoundness bug: `Bluetti` was declared `Generic[T]` at the class level but never actually parametrized per instance - `_request()` now returns `UnifyResponse[Any] | str`, with `ProductClient`'s public methods restoring a precise type via `typing.cast` at the boundary where `pydantic.TypeAdapter` already validated it at runtime.

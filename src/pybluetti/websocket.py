@@ -23,13 +23,15 @@ __LOGGER__ = logging.getLogger(__name__)
 class StompClient:
     """A STOMP client connected to the BLUETTI cloud's push-update websocket."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 -- three optional, independently-set callbacks, all keyword-only; bundling them into one object would just move the same information one level down without simplifying a caller that only wants one of them
         self,
         session: aiohttp.ClientSession,
         url: str,
         access_token: str,
+        *,
         handler: Callable[[str], None] | None = None,
         on_auth_expired: Callable[[], None] | None = None,
+        on_error: Callable[[ApplicationRuntimeException], None] | None = None,
     ) -> None:
         """
         Initialize the client.
@@ -40,6 +42,12 @@ class StompClient:
         - handler: called with each MESSAGE frame's body.
         - on_auth_expired: called when the cloud reports the access token as
           expired (msgCode 805), so the caller can react.
+        - on_error: called with any other ERROR frame the cloud sends back
+          (a msgCode other than 805). The client still retries with backoff
+          regardless - some of these are transient - but nothing else
+          surfaces a persistent one distinctly from a run-of-the-mill
+          connection drop, so a caller that wants to react (log once, show
+          the user something actionable) has no other hook for it.
         """
         self._session = session
         self.__url = url + "/websocket"
@@ -49,12 +57,18 @@ class StompClient:
         }
         self.__handler = handler
         self.on_auth_expired = on_auth_expired
+        self.on_error = on_error
         self._ws: aiohttp.ClientWebSocketResponse | None = None
         self.running = False
 
         self._receive_task: asyncio.Task[None] | None = None
         self._heartbeat_task: asyncio.Task[None] | None = None
         self.heartbeat_interval = 10
+        # The most recent ApplicationRuntimeException message _run() logged
+        # at full severity, cleared once a CONNECTED frame proves the
+        # connection actually recovered - lets a persistently repeated error
+        # log its full traceback once, not on every retry forever.
+        self._last_error_message: str | None = None
 
         self.reconnect_delay = 1  # initial reconnect delay (seconds)
         self.max_reconnect_delay = 30  # max reconnect delay (seconds)
@@ -85,6 +99,16 @@ class StompClient:
         """Connect to the ws server and start the background receive/heartbeat tasks."""
         __LOGGER__.info("Start to connect the BLUETTI WebSocket Server.")
         self.running = True
+
+        # A reconnect (whether from a dropped connection or a rejected one)
+        # leaves the previous heartbeat task still scheduled on the old,
+        # now-stale websocket - only the msgCode-805 path cancels it before
+        # getting here. Left running, it wakes up on its own next interval,
+        # fails to write to the closing transport, and logs a confusing
+        # "Failed to send heartbeat" line that has nothing to do with
+        # whatever actually triggered this reconnect.
+        if self._heartbeat_task is not None:
+            self._heartbeat_task.cancel()
 
         try:
             self._ws = await self._session.ws_connect(self.__url, headers=self.__headers)
@@ -161,11 +185,30 @@ class StompClient:
                 elif msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSED):
                     __LOGGER__.debug("WebSocket connection closed: %s", msg)
                     break
+        except ApplicationRuntimeException as err:
+            self._handle_application_runtime_exception(err)
         except Exception:
             __LOGGER__.exception("BLUETTI WebSocket task crashed")
 
         if self.running:
             await self.reconnect()
+
+    def _handle_application_runtime_exception(self, err: ApplicationRuntimeException) -> None:
+        """
+        Log a real STOMP ERROR frame from the cloud and notify on_error.
+
+        Still retried the same as any other drop by the caller in _run()
+        (some of these are transient), but a persistent one would otherwise
+        re-log the same full traceback on every retry forever - once the
+        message repeats, that's not new information.
+        """
+        if str(err) == self._last_error_message:
+            __LOGGER__.debug("BLUETTI WebSocket task crashed (repeat): %s", err)
+        else:
+            __LOGGER__.exception("BLUETTI WebSocket task crashed")
+            self._last_error_message = str(err)
+        if self.on_error is not None:
+            self.on_error(err)
 
     async def _handle_frame(self, message: str) -> None:
         """Parse and handle one incoming STOMP frame."""
@@ -209,6 +252,11 @@ class StompClient:
         if ws is None:
             __LOGGER__.error("Received a CONNECTED frame without an open connection, cannot subscribe")
             return
+
+        # A real connection again - if the same ERROR frame recurs later,
+        # that's new information worth a full traceback again, not a
+        # continuation of whatever was failing before.
+        self._last_error_message = None
 
         heartbeat = frame.headers.get("heart-beat", "0,0")
         server_send, server_receive = map(int, heartbeat.split(","))

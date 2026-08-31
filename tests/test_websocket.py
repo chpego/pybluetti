@@ -1,7 +1,7 @@
 """Tests for websocket.py (StompClient), the async aiohttp websocket transport."""
 
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import aiohttp
 import pytest
@@ -60,7 +60,9 @@ class _FakeSession:
 def _client(ws=None, handler=None):
     on_auth_expired = MagicMock()
     session = _FakeSession(ws)
-    client = StompClient(session, GATEWAY_WS_URL, "token", handler, on_auth_expired)
+    client = StompClient(
+        session, GATEWAY_WS_URL, "token", handler=handler, on_auth_expired=on_auth_expired
+    )
     # Most tests exercise internal methods (_run, _handle_frame, ...)
     # directly rather than through connect(), so simulate an already-open
     # connection the same way the ported test suite always has.
@@ -96,6 +98,20 @@ async def test_connect_opens_socket_sends_connect_frame_and_starts_tasks():
     assert "Authorization: token" in ws.sent[0]
     assert client._receive_task is not None
     assert client._heartbeat_task is not None
+
+
+async def test_connect_cancels_a_stale_heartbeat_task_from_a_previous_connection():
+    ws = _FakeWebSocket()
+    client, _session, _on_auth_expired = _client(ws)
+    stale_task = MagicMock()
+    client._heartbeat_task = stale_task
+
+    await client.connect()
+
+    stale_task.cancel.assert_called_once()
+    assert client._heartbeat_task is not stale_task
+
+    await client.disconnect()  # tidy up the background tasks started above
 
     await client.disconnect()  # tidy up the background tasks started above
 
@@ -289,6 +305,82 @@ async def test_run_catches_unexpected_exception_and_reconnects():
     client.reconnect.assert_awaited_once()
 
 
+def _error_message(msg_code: int, message: str) -> _FakeWSMessage:
+    payload = json.dumps({"msgCode": msg_code, "message": message}).replace(":", "\\c")
+    raw = f"ERROR\nmessage:{payload}\n\n\x00"
+    return _FakeWSMessage(aiohttp.WSMsgType.TEXT, raw)
+
+
+async def test_run_catches_application_runtime_exception_logs_full_and_calls_on_error():
+    ws = _FakeWebSocket([_error_message(500, "server error")])
+    on_auth_expired = MagicMock()
+    on_error = MagicMock()
+    session = _FakeSession(ws)
+    client = StompClient(
+        session, GATEWAY_WS_URL, "token", on_auth_expired=on_auth_expired, on_error=on_error
+    )
+    client._ws = ws
+    client.running = True
+    client.reconnect = AsyncMock()
+
+    with patch("pybluetti.websocket.__LOGGER__") as logger:
+        await client._run()
+
+    logger.exception.assert_called_once_with("BLUETTI WebSocket task crashed")
+    debug_messages = [call.args[0] for call in logger.debug.call_args_list]
+    assert "BLUETTI WebSocket task crashed (repeat): %s" not in debug_messages
+    on_error.assert_called_once()
+    assert on_error.call_args[0][0].msgCode == 500
+    assert client._last_error_message == "server error"
+    client.reconnect.assert_awaited_once()
+
+
+async def test_run_downgrades_repeated_identical_application_runtime_exception():
+    ws = _FakeWebSocket([_error_message(500, "server error")])
+    session = _FakeSession(ws)
+    client = StompClient(session, GATEWAY_WS_URL, "token")
+    client._ws = ws
+    client.running = True
+    client._last_error_message = "server error"  # already logged once, on a previous retry
+    client.reconnect = AsyncMock()
+
+    with patch("pybluetti.websocket.__LOGGER__") as logger:
+        await client._run()
+
+    logger.exception.assert_not_called()
+    logger.debug.assert_any_call("BLUETTI WebSocket task crashed (repeat): %s", ANY)
+    client.reconnect.assert_awaited_once()
+
+
+async def test_run_relogs_in_full_once_the_error_message_changes():
+    ws = _FakeWebSocket([_error_message(500, "a different error")])
+    session = _FakeSession(ws)
+    client = StompClient(session, GATEWAY_WS_URL, "token")
+    client._ws = ws
+    client.running = True
+    client._last_error_message = "server error"
+    client.reconnect = AsyncMock()
+
+    with patch("pybluetti.websocket.__LOGGER__") as logger:
+        await client._run()
+
+    logger.exception.assert_called_once_with("BLUETTI WebSocket task crashed")
+    assert client._last_error_message == "a different error"
+
+
+async def test_run_application_runtime_exception_without_on_error_does_not_raise():
+    ws = _FakeWebSocket([_error_message(500, "server error")])
+    session = _FakeSession(ws)
+    client = StompClient(session, GATEWAY_WS_URL, "token")
+    client._ws = ws
+    client.running = True
+    client.reconnect = AsyncMock()
+
+    await client._run()  # must not raise even with on_error unset
+
+    client.reconnect.assert_awaited_once()
+
+
 # --- StompClient._handle_frame --------------------------------------------------
 
 async def test_handle_frame_ignores_empty_and_heartbeat():
@@ -349,6 +441,17 @@ async def test_handle_frame_connected_with_user_name_subscribes():
     await client._handle_frame(raw)
 
     assert "/ws-subscribe/user/bob/notify" in ws.sent[0]
+
+
+async def test_handle_frame_connected_resets_last_error_message():
+    ws = _FakeWebSocket()
+    client, _session, _on_auth_expired = _client(ws)
+    client._last_error_message = "server error"
+    raw = "CONNECTED\nheart-beat:10000,10000\nuser-name:bob\n\n\x00"
+
+    await client._handle_frame(raw)
+
+    assert client._last_error_message is None
 
 
 async def test_handle_frame_connected_without_user_name_logs_and_returns():
